@@ -7,14 +7,11 @@ from concurrent.futures import ThreadPoolExecutor
 # --- INTERFACE ---
 st.set_page_config(page_title="Convertisseur Freebet", page_icon="💶", layout="wide")
 st.title("💶 Convertisseur Freebets : Wina & Betclic")
-st.markdown("Transforme tes paris gratuits en argent réel sans risque.")
+st.markdown("Transforme tes paris gratuits en argent réel en respectant tes soldes.")
 
 st.sidebar.header("💰 Tes Soldes")
 MAX_WINA = st.sidebar.number_input("Solde Winamax (€)", value=135.0)
 MAX_BETCLIC = st.sidebar.number_input("Solde Betclic (€)", value=55.0)
-
-BUDGET_TOTAL_THEORIQUE = MAX_WINA + MAX_BETCLIC
-st.sidebar.success(f"💶 Total à convertir : **{BUDGET_TOTAL_THEORIQUE:.2f} €**")
 
 WINA_URLS = ["https://www.winamax.fr/paris-sportifs/sports/1/800000542", "https://www.winamax.fr/paris-sportifs/sports/1/7", "https://www.winamax.fr/paris-sportifs/sports/1/1", "https://www.winamax.fr/paris-sportifs/sports/1/32", "https://www.winamax.fr/paris-sportifs/sports/1/30", "https://www.winamax.fr/paris-sportifs/sports/1/31"]
 BETCLIC_URLS = ["https://www.betclic.fr/football-s1/ligue-des-champions-c8", "https://www.betclic.fr/football-s1/ligue-europa-c3453", "https://www.betclic.fr/football-s1/ligue-1-mcdonald-s-c4", "https://www.betclic.fr/football-s1/angl-premier-league-c3", "https://www.betclic.fr/football-s1/espagne-liga-primera-c7", "https://www.betclic.fr/football-s1/allemagne-bundesliga-c5", "https://www.betclic.fr/football-s1/italie-serie-a-c6"]
@@ -57,38 +54,62 @@ def betclic_extract():
     return matchs
 
 if st.button("🔍 Chercher les meilleures cotes"):
-    with st.spinner("Recherche des matchs en cours..."):
+    with st.spinner("Recherche et calcul des répartitions (512 combinaisons par duo)..."):
         wina, betclic = wina_extract(), betclic_extract()
         matchs_communs = [{'t': wt, 'w': wc, 'b': bc} for wt, wc in wina.items() for bt, bc in betclic.items() if match_identique(wt, bt)]
         
         st.write(f"✅ {len(matchs_communs)} matchs trouvés en commun.")
 
         if len(matchs_communs) >= 2:
-            best_gain_net, best_duo = 0, None
-            # LE BUDGET EST MAINTENANT FORCÉ SUR LA SOMME EXACTE DES SOLDES
-            budget_force = MAX_WINA + MAX_BETCLIC
+            best_gain_net = 0
+            best_duo = None
             
+            # --- LE RETOUR DU MOTEUR D'ORIGINE ---
             for m1, m2 in itertools.combinations(matchs_communs[:15], 2):
                 issues = [('1','1'), ('1','N'), ('1','2'), ('N','1'), ('N','N'), ('N','2'), ('2','1'), ('2','N'), ('2','2')]
-                pw_raw, pb_raw, temp_cg = 0, 0, []
-                for i1, i2 in issues:
-                    c_w, c_b = m1['w'][i1] * m2['w'][i2], m1['b'][i1] * m2['b'][i2]
-                    if c_w >= c_b: 
-                        pw_raw += 1 / (c_w - 1)
-                        temp_cg.append(('WINA', c_w, i1, i2))
-                    else: 
-                        pb_raw += 1 / (c_b - 1)
-                        temp_cg.append(('BETCLIC', c_b, i1, i2))
                 
-                sp = pw_raw + pb_raw
-                if sp > 0:
-                    gain_net = budget_force / sp
-                    if gain_net > best_gain_net: 
-                        best_gain_net, best_duo = gain_net, (m1, m2, temp_cg, sp, budget_force, (1/sp)*100)
+                # Test des 512 répartitions possibles (Wina ou Betclic pour les 9 tickets)
+                for repartition in itertools.product(['W', 'B'], repeat=9):
+                    pw_raw = 0
+                    pb_raw = 0
+                    cg_list = []
+                    
+                    for idx, (i1, i2) in enumerate(issues):
+                        if repartition[idx] == 'W':
+                            cote = m1['w'][i1] * m2['w'][i2]
+                            pw_raw += 1 / (cote - 1)
+                            cg_list.append(('WINA', cote, i1, i2))
+                        else:
+                            cote = m1['b'][i1] * m2['b'][i2]
+                            pb_raw += 1 / (cote - 1)
+                            cg_list.append(('BETCLIC', cote, i1, i2))
+                            
+                    sp = pw_raw + pb_raw
+                    if sp == 0: continue
+                    
+                    prop_w = pw_raw / sp
+                    prop_b = pb_raw / sp
+                    
+                    # C'est ici que la magie opère : ça ne dépassera JAMAIS tes plafonds
+                    limite_selon_w = MAX_WINA / prop_w if prop_w > 0 else float('inf')
+                    limite_selon_b = MAX_BETCLIC / prop_b if prop_b > 0 else float('inf')
+                    
+                    budget_max_jouable = min(limite_selon_w, limite_selon_b)
+                    gain_net = budget_max_jouable / sp
+                    tx_conversion = (1 / sp) * 100
+                    
+                    if gain_net > best_gain_net:
+                        best_gain_net = gain_net
+                        best_duo = (m1, m2, cg_list, sp, budget_max_jouable, tx_conversion)
 
             if best_duo:
                 m1, m2, cg, sp, budget, tx = best_duo
-                st.success(f"💎 OPTION RENTABLE TROUVÉE")
+                
+                # Re-calcul exact des dépenses pour affichage
+                wina_depense = sum((1 / (cote - 1) / sp) * budget for bookie, cote, i1, i2 in cg if bookie == 'WINA')
+                betclic_depense = sum((1 / (cote - 1) / sp) * budget for bookie, cote, i1, i2 in cg if bookie == 'BETCLIC')
+
+                st.success(f"💎 OPTION SÉCURISÉE TROUVÉE")
                 
                 col1, col2, col3 = st.columns(3)
                 col1.metric("Taux de Conversion", f"{tx:.2f}%")
@@ -96,25 +117,20 @@ if st.button("🔍 Chercher les meilleures cotes"):
                 col3.metric("Total Freebets Joués", f"{budget:.2f} €")
                 
                 st.markdown("---")
+                
+                # Preuve que ça respecte les soldes :
+                st.info(f"📊 **Vérification des Soldes :**\n- Il te faut **{wina_depense:.2f} €** sur Winamax (Max: {MAX_WINA} €)\n- Il te faut **{betclic_depense:.2f} €** sur Betclic (Max: {MAX_BETCLIC} €)")
+                
                 st.subheader(f"⚽ {m1['t']} ➕ {m2['t']}")
-                
-                # --- CALCUL RÉPARTITION ---
-                total_wina = sum((1 / (cote - 1) / sp) * budget for bookie, cote, i1, i2 in cg if bookie == 'WINA')
-                total_betclic = sum((1 / (cote - 1) / sp) * budget for bookie, cote, i1, i2 in cg if bookie == 'BETCLIC')
-                
-                if total_wina > MAX_WINA or total_betclic > MAX_BETCLIC:
-                    st.error(f"⚠️ **ATTENTION :** Ce match demande **{total_wina:.2f} € sur Winamax** et **{total_betclic:.2f} € sur Betclic**. Tes soldes actuels ne permettent pas de placer ce pari. Cherche un autre moment ou ajuste tes soldes.")
-                else:
-                    st.success(f"✅ **RÉPARTITION PARFAITE :** Ce match rentre dans tes clous ({total_wina:.2f}€ sur Wina / {total_betclic:.2f}€ sur Betclic).")
-
                 st.markdown("##### Voici les 9 tickets à placer :")
+                
                 for r in range(0, 9, 3):
                     cols = st.columns(3)
                     for c in range(3):
                         bookie, cote, i1, i2 = cg[r + c]
                         mise = (1 / (cote - 1) / sp) * budget
                         with cols[c]:
-                            st.info(f"**Issue [{i1}-{i2}]**\n\n🏦 {bookie}\n\n📈 Cote : **{cote:.2f}**\n\n💶 Mise : **{mise:.2f} €**")
+                            st.success(f"**Issue [{i1}-{i2}]**\n\n🏦 {bookie}\n\n📈 Cote : **{cote:.2f}**\n\n💶 Mise : **{mise:.2f} €**")
 
             else: st.warning("Aucun duo rentable trouvé. Les cotes actuelles sont trop basses.")
         else: st.error("Besoin d'au moins 2 matchs communs. Les bookmakers sont peut-être vides à cette heure-ci.")
