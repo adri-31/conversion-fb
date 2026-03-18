@@ -5,7 +5,7 @@ from difflib import SequenceMatcher
 from concurrent.futures import ThreadPoolExecutor
 
 # --- 🤖 CONFIGURATION TELEGRAM BOT ---
-TELEGRAM_TOKEN = "8588964695:AAGLFcpp1qmVlNS-wuXt38GHagPHI5mJy_q0"
+TELEGRAM_TOKEN = "8588964695:AAGLFcpp1qmVlNS-wuXt38GHagPHI5mJy8q0"
 TELEGRAM_CHAT_ID = "318551687"
 
 def envoyer_alerte_telegram(message):
