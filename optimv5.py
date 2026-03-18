@@ -1,6 +1,6 @@
 import re, itertools, unicodedata
 import streamlit as st
-from curl_cffi import requests
+from curl_cffi import requests # ON UTILISE UNIQUEMENT LUI
 from difflib import SequenceMatcher
 from concurrent.futures import ThreadPoolExecutor
 
@@ -9,11 +9,11 @@ TELEGRAM_TOKEN = "8588964695:AAGLFcpp1qmVlNS-wuXt38GHagPHI5mJy8q0"
 TELEGRAM_CHAT_ID = "318551687"
 
 def envoyer_alerte_telegram(message):
-    if "8588" not in TELEGRAM_TOKEN: return 
+    # On utilise requests de curl_cffi pour ne pas se faire bloquer
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"}
     try:
-        requests.post(url, data=payload, timeout=5)
+        requests.post(url, data=payload, timeout=5, impersonate="chrome120")
     except:
         pass
 
@@ -75,7 +75,6 @@ if st.button("🔍 Chercher les meilleures cotes"):
 
         if len(matchs) >= 2:
             best_gn, best_d = 0, None
-            # On limite à 15 matchs pour éviter que Streamlit ne rame trop
             for m1, m2 in itertools.combinations(matchs[:15], 2):
                 issues = [('1','1'), ('1','N'), ('1','2'), ('N','1'), ('N','N'), ('N','2'), ('2','1'), ('2','N'), ('2','2')]
                 for rep in itertools.product(['W', 'B'], repeat=9):
@@ -91,24 +90,20 @@ if st.button("🔍 Chercher les meilleures cotes"):
                     sp = pw + pb
                     if sp > 0:
                         bw, bb = pw/sp, pb/sp
-                        # Calcul du budget max selon tes soldes
                         bud_w = MAX_WINA / bw if bw > 0 else float('inf')
                         bud_b = MAX_BETCLIC / bb if bb > 0 else float('inf')
                         bud = min(bud_w, bud_b)
                         gn = bud / sp
                         tx = (1 / sp) * 100
-                        
-                        if gn > best_gn:
-                            best_gn, best_d = gn, (m1, m2, cg, sp, bud, tx)
+                        if gn > best_gn: best_gn, best_d = gn, (m1, m2, cg, sp, bud, tx)
 
             if best_d:
                 m1, m2, cg, sp, bud, tx = best_d
                 st.success(f"💎 OPTION TROUVÉE - Conversion: {tx:.2f}%")
                 
-                # Alerte Telegram si conversion top
+                # Alerte Telegram
                 if tx >= 75.0:
-                    msg = f"🚨 <b>{tx:.2f}%</b>\n⚽ {m1['t']} + {m2['t']}\n💰 Gain: {best_gn:.2f}€"
-                    envoyer_alerte_telegram(msg)
+                    envoyer_alerte_telegram(f"🚨 <b>{tx:.2f}%</b>\n{m1['t']} + {m2['t']}\nGain: {best_gn:.2f}€")
                 
                 c1, c2, c3 = st.columns(3)
                 c1.metric("Conversion", f"{tx:.2f}%")
