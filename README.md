@@ -1,0 +1,2 @@
+streamlit
+curl_cffi
