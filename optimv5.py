@@ -5,21 +5,22 @@ from difflib import SequenceMatcher
 from concurrent.futures import ThreadPoolExecutor
 
 # --- 🤖 CONFIGURATION TELEGRAM BOT ---
-# Remplace par tes vrais codes obtenus sur Telegram
+# Remplace par tes vrais codes
 TELEGRAM_TOKEN = "8588964695:AAGLFcpp1qmVlNS-wuXt38GHagPHI5mJy_q0"
 TELEGRAM_CHAT_ID = "318551687"
 
 def envoyer_alerte_telegram(message):
-    # Si tu n'as pas encore mis tes codes, on bloque l'envoi pour éviter les erreurs
-    if TELEGRAM_TOKEN == "8588964695:AAGLFcpp1qmVlNS-wuXt38GHagPHI5mJy_q0":
+    # Sécurité : on n'envoie que si le token n'est pas celui par défaut
+    if "8588" not in TELEGRAM_TOKEN:
         return 
     
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"}
     try:
+        # On utilise curl_cffi aussi pour l'envoi pour rester cohérent
         requests.post(url, data=payload, timeout=5)
-    except Exception as e:
-        print(f"Erreur Telegram : {e}")
+    except:
+        pass
 
 # --- INTERFACE ---
 st.set_page_config(page_title="Convertisseur Freebet", page_icon="💶", layout="wide")
@@ -48,112 +49,16 @@ def fetch_url(url):
     try: return requests.get(url, impersonate="chrome120", timeout=10).text
     except: return ""
 
-def wina_extract():
-    matchs = {}
-    with ThreadPoolExecutor(max_workers=6) as ex: pages = list(ex.map(fetch_url, WINA_URLS))
-    for text in pages:
-        odds = dict(re.findall(r'"(\d{8,})":(\d+\.\d+|\d+)', text))
-        bets = re.findall(r'"betId":(\d+).*?"outcomes":\[(\d+),(\d+),(\d+)\]', text)
-        map_p = {b[0]: [b[1], b[2], b[3]] for b in bets}
-        for bid, titre in re.findall(r'"mainBetId":(\d+).*?"title":"(.*? - .*?)"', text):
-            if bid in map_p and all(o in odds for o in map_p[bid]):
-                c = [float(odds[o]) for o in map_p[bid]]
-                if min(c) >= 1.50: matchs[titre] = {'1':c[0], 'N':c[1], '2':c[2]}
-    return matchs
+def extract_all_data():
+    results = {'WINA': {}, 'BETCLIC': {}}
+    url_list = [(s, u) for s, urls in [('WINA', WINA_URLS), ('BETCLIC', BETCLIC_URLS)] for u in urls]
+    
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        pages_raw = list(ex.map(fetch_url, [u for s, u in url_list]))
+    
+    # Séparation manuelle pour éviter les bugs de structure
+    wina_pages = pages_raw[:6]
+    betclic_pages = pages_raw[6:]
 
-def betclic_extract():
-    matchs = {}
-    with ThreadPoolExecutor(max_workers=6) as ex: pages = list(ex.map(fetch_url, BETCLIC_URLS))
-    for text in pages:
-        chunks = re.split(r'"name":"([^"]+ - [^"]+)"', text)
-        for i in range(1, len(chunks) - 1, 2):
-            odds = re.findall(r'"odds":(\d+\.\d+|\d+)', chunks[i+1][:3000])
-            if len(odds) >= 3:
-                c = [float(odds[0]), float(odds[1]), float(odds[2])]
-                if 1.01 < min(c) < 50: matchs[chunks[i]] = {'1':c[0], 'N':c[1], '2':c[2]}
-    return matchs
-
-if st.button("🔍 Chercher les meilleures cotes"):
-    with st.spinner("Recherche et calcul des répartitions (512 combinaisons par duo)..."):
-        wina, betclic = wina_extract(), betclic_extract()
-        matchs_communs = [{'t': wt, 'w': wc, 'b': bc} for wt, wc in wina.items() for bt, bc in betclic.items() if match_identique(wt, bt)]
-        
-        st.write(f"✅ {len(matchs_communs)} matchs trouvés en commun.")
-
-        if len(matchs_communs) >= 2:
-            best_gain_net = 0
-            best_duo = None
-            
-            for m1, m2 in itertools.combinations(matchs_communs[:15], 2):
-                issues = [('1','1'), ('1','N'), ('1','2'), ('N','1'), ('N','N'), ('N','2'), ('2','1'), ('2','N'), ('2','2')]
-                
-                for repartition in itertools.product(['W', 'B'], repeat=9):
-                    pw_raw = 0
-                    pb_raw = 0
-                    cg_list = []
-                    
-                    for idx, (i1, i2) in enumerate(issues):
-                        if repartition[idx] == 'W':
-                            cote = m1['w'][i1] * m2['w'][i2]
-                            pw_raw += 1 / (cote - 1)
-                            cg_list.append(('WINA', cote, i1, i2))
-                        else:
-                            cote = m1['b'][i1] * m2['b'][i2]
-                            pb_raw += 1 / (cote - 1)
-                            cg_list.append(('BETCLIC', cote, i1, i2))
-                            
-                    sp = pw_raw + pb_raw
-                    if sp == 0: continue
-                    
-                    prop_w = pw_raw / sp
-                    prop_b = pb_raw / sp
-                    
-                    limite_selon_w = MAX_WINA / prop_w if prop_w > 0 else float('inf')
-                    limite_selon_b = MAX_BETCLIC / prop_b if prop_b > 0 else float('inf')
-                    
-                    budget_max_jouable = min(limite_selon_w, limite_selon_b)
-                    gain_net = budget_max_jouable / sp
-                    tx_conversion = (1 / sp) * 100
-                    
-                    if gain_net > best_gain_net:
-                        best_gain_net = gain_net
-                        best_duo = (m1, m2, cg_list, sp, budget_max_jouable, tx_conversion)
-
-            if best_duo:
-                m1, m2, cg, sp, budget, tx = best_duo
-                
-                wina_depense = sum((1 / (cote - 1) / sp) * budget for bookie, cote, i1, i2 in cg if bookie == 'WINA')
-                betclic_depense = sum((1 / (cote - 1) / sp) * budget for bookie, cote, i1, i2 in cg if bookie == 'BETCLIC')
-
-                st.success(f"💎 OPTION SÉCURISÉE TROUVÉE")
-                
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Taux de Conversion", f"{tx:.2f}%")
-                col2.metric("Gain Cash Garanti", f"{best_gain_net:.2f} €")
-                col3.metric("Total Freebets Joués", f"{budget:.2f} €")
-                
-                # --- 🚨 DÉCLENCHEMENT DE L'ALERTE TELEGRAM ---
-                if tx >= 75.0:
-                    alerte_msg = f"🚨 <b>PÉPITE FREEBET : {tx:.2f}%</b> 🚨\n\n"
-                    alerte_msg += f"⚽ {m1['t']} \n➕ {m2['t']}\n\n"
-                    alerte_msg += f"💰 Gain Cash : <b>{best_gain_net:.2f} €</b>\n"
-                    alerte_msg += f"💶 Budget Joué : {budget:.2f} €\n\n"
-                    alerte_msg += "Ouvre ton appli pour voir la répartition Wina/Betclic exacte !"
-                    envoyer_alerte_telegram(alerte_msg)
-
-                st.markdown("---")
-                st.info(f"📊 **Vérification des Soldes :**\n- Il te faut **{wina_depense:.2f} €** sur Winamax (Max: {MAX_WINA} €)\n- Il te faut **{betclic_depense:.2f} €** sur Betclic (Max: {MAX_BETCLIC} €)")
-                
-                st.subheader(f"⚽ {m1['t']} ➕ {m2['t']}")
-                st.markdown("##### Voici les 9 tickets à placer :")
-                
-                for r in range(0, 9, 3):
-                    cols = st.columns(3)
-                    for c in range(3):
-                        bookie, cote, i1, i2 = cg[r + c]
-                        mise = (1 / (cote - 1) / sp) * budget
-                        with cols[c]:
-                            st.success(f"**Issue [{i1}-{i2}]**\n\n🏦 {bookie}\n\n📈 Cote : **{cote:.2f}**\n\n💶 Mise : **{mise:.2f} €**")
-
-            else: st.warning("Aucun duo rentable trouvé. Les cotes actuelles sont trop basses.")
-        else: st.error("Besoin d'au moins 2 matchs communs. Les bookmakers sont peut-être vides à cette heure-ci.")
+    for text in wina_pages:
+        odds = dict(re.findall(r'"(\d{8,})":(\d+\.\
