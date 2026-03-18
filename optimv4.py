@@ -11,7 +11,7 @@ st.markdown("""
     <style>
     .big-font { font-size:20px !important; font-weight: bold; }
     .ticket-card { background-color: #1E1E1E; border: 2px solid #333; border-radius: 10px; padding: 15px; margin-bottom: 10px; }
-    .stButton>button { width: 100%; border-radius: 20px; background-color: #FF4B4B; color: white; }
+    .stButton>button { width: 100%; border-radius: 20px; background-color: #FF4B4B; color: white; border: none; padding: 10px; font-size: 16px;}
     </style>
     """, unsafe_allow_html=True)
 
@@ -19,12 +19,11 @@ st.title("💶 Convertisseur Freebet Elite")
 st.markdown("*Optimisation Wina/Betclic - Automatisée*")
 st.divider()
 
-# --- 💰 TES SOLDES (Simplifiés) ---
+# --- 💰 TES SOLDES ---
 st.sidebar.header("💰 Tes Soldes Freebets")
 MAX_WINA = st.sidebar.number_input("Solde Winamax (€)", value=135.0, step=5.0)
 MAX_BETCLIC = st.sidebar.number_input("Solde Betclic (€)", value=55.0, step=5.0)
 
-# La machine calcule le total toute seule !
 BUDGET_TOTAL_THEORIQUE = MAX_WINA + MAX_BETCLIC
 st.sidebar.success(f"💶 Total à convertir : **{BUDGET_TOTAL_THEORIQUE:.2f} €**")
 st.sidebar.divider()
@@ -34,15 +33,18 @@ URLS = {
     'BETCLIC': ["https://www.betclic.fr/football-s1/ligue-des-champions-c8", "https://www.betclic.fr/football-s1/ligue-Europa-c3453", "https://www.betclic.fr/football-s1/ligue-1-mcdonald-s-c4", "https://www.betclic.fr/football-s1/angl-premier-league-c3"]
 }
 
-def nettoyer_nom(texte):
-    nom = unicodedata.normalize('NFKD', texte).encode('ASCII', 'ignore').decode('utf-8').lower()
-    for word in ["fc", "stade", "olympique", "atletico", "atl.", "madrid", "united", "city", "vs", "-", "real", "hotspur", "bayer", "saint"]:
-        nom = nom.replace(word, "")
-    return "".join(nom.split())
+# LE RETOUR DE L'ANCIEN MATCHING SOUPLE (Celui qui trouve tout)
+def match_identique(t1, t2):
+    def nettoyer(texte): return unicodedata.normalize('NFKD', texte).encode('ASCII', 'ignore').decode('utf-8').lower().strip()
+    try:
+        w_dom, w_ext = t1.split(' - ')
+        b_dom, b_ext = t2.split(' - ')
+        return (SequenceMatcher(None, nettoyer(w_dom), nettoyer(b_dom)).ratio() > 0.75 and SequenceMatcher(None, nettoyer(w_ext), nettoyer(b_ext)).ratio() > 0.75)
+    except: return False
 
 def fetch_url(site_url):
     site, url = site_url
-    try: return site, requests.get(url, impersonate="chrome120", timeout=8).text
+    try: return site, requests.get(url, impersonate="chrome120", timeout=10).text
     except: return site, ""
 
 def extract_all_data():
@@ -56,13 +58,16 @@ def extract_all_data():
         map_p = {b[0]: [b[1], b[2], b[3]] for b in bets}
         for bid, titre in re.findall(r'"mainBetId":(\d+).*?"title":"(.*? - .*?)"', text):
             if bid in map_p and all(o in odds for o in map_p[bid]):
-                results['WINA'][titre] = {'1':float(odds[map_p[bid][0]]), 'N':float(odds[map_p[bid][1]]), '2':float(odds[map_p[bid][2]])}
+                c = [float(odds[o]) for o in map_p[bid]]
+                if min(c) >= 1.50: results['WINA'][titre] = {'1':c[0], 'N':c[1], '2':c[2]}
     
     for site, text in [p for p in pages if p[0] == 'BETCLIC']:
         found = re.findall(r'"name":"([^"]+ - [^"]+)".*?"odds":\[(.*?\])', text)
         for name, odds_raw in found:
             o = re.findall(r'(\d+\.\d+|\d+)', odds_raw)
-            if len(o) >= 3: results['BETCLIC'][name] = {'1':float(o[0]), 'N':float(o[1]), '2':float(o[2])}
+            if len(o) >= 3: 
+                c = [float(o[0]), float(o[1]), float(o[2])]
+                if 1.01 < min(c) < 50: results['BETCLIC'][name] = {'1':c[0], 'N':c[1], '2':c[2]}
     return results
 
 # --- 🚀 MOTEUR PRINCIPAL ---
@@ -72,18 +77,24 @@ with col2:
         with st.spinner("Comparaison des matchs en cours..."):
             data = extract_all_data()
             matchs_unifies = []
-            clean_wina = {nettoyer_nom(k): (k, v) for k, v in data['WINA'].items()}
             
-            for b_name, b_odds in data['BETCLIC'].items():
-                b_clean = nettoyer_nom(b_name)
-                if b_clean in clean_wina:
-                    matchs_unifies.append({'t': b_name, 'sites': {'BETCLIC': b_odds, 'WINA': clean_wina[b_clean][1]}})
+            # RETOUR AU CROISEMENT FIABLE
+            for wt, wc in data['WINA'].items():
+                for bt, bc in data['BETCLIC'].items():
+                    if match_identique(wt, bt):
+                        matchs_unifies.append({'t': wt, 'sites': {'WINA': wc, 'BETCLIC': bc}})
+                        break
             
             st.session_state['matchs_unifies'] = matchs_unifies
+            if len(matchs_unifies) > 0:
+                st.success(f"✅ {len(matchs_unifies)} matchs trouvés en commun !")
+            else:
+                st.error("❌ Aucun match trouvé. Les bookmakers n'ont peut-être pas encore sorti les cotes.")
 
 if 'matchs_unifies' in st.session_state and st.session_state['matchs_unifies']:
     best_results = []
-    for m1, m2 in itertools.combinations(st.session_state['matchs_unifies'], 2):
+    # On limite aux 15 premiers pour la vitesse de calcul sur iPhone
+    for m1, m2 in itertools.combinations(st.session_state['matchs_unifies'][:15], 2):
         combos, sp_fb = [], 0
         for i1, i2 in itertools.product(['1', 'N', '2'], repeat=2):
             best_c, best_s = 0, ""
@@ -107,7 +118,6 @@ if 'matchs_unifies' in st.session_state and st.session_state['matchs_unifies']:
         for rank, top in enumerate(best_results[:3]):
             with st.expander(f"🏆 Option #{rank+1} - Conversion : {top['conv']:.2f}%", expanded=(rank == 0)):
                 
-                # Mathématiques de répartition stricte sur tes soldes réels
                 pw = sum(1/(c['cote']-1) for c in top['combos'] if c['site'] == 'WINA')
                 pb = sum(1/(c['cote']-1) for c in top['combos'] if c['site'] == 'BETCLIC')
                 
@@ -139,7 +149,7 @@ if 'matchs_unifies' in st.session_state and st.session_state['matchs_unifies']:
                             <p style='margin:0; text-align:center;'>ISSUE <b>[{ticket['res']}]</b></p>
                             <p style='margin:0; text-align:center; color:{color};'><b>{ticket['site']}</b></p>
                             <p style='margin:10px 0; text-align:center;'>Cote: <b>{ticket['cote']:.2f}</b></p>
-                            <p style='margin:0; text-align:center; background-color:#333; padding:5px;'>Mise : <b>{mise:.2f} €</b></p>
+                            <p style='margin:0; text-align:center; background-color:#333; padding:5px; border-radius:5px;'>Mise : <b>{mise:.2f} €</b></p>
                         </div>
                         """, unsafe_allow_html=True)
                 
