@@ -33,7 +33,6 @@ URLS = {
     'BETCLIC': ["https://www.betclic.fr/football-s1/ligue-des-champions-c8", "https://www.betclic.fr/football-s1/ligue-Europa-c3453", "https://www.betclic.fr/football-s1/ligue-1-mcdonald-s-c4", "https://www.betclic.fr/football-s1/angl-premier-league-c3"]
 }
 
-# LE RETOUR DE L'ANCIEN MATCHING SOUPLE (Celui qui trouve tout)
 def match_identique(t1, t2):
     def nettoyer(texte): return unicodedata.normalize('NFKD', texte).encode('ASCII', 'ignore').decode('utf-8').lower().strip()
     try:
@@ -76,9 +75,11 @@ with col2:
     if st.button("📊 CHERCHER LES MEILLEURES COTES"):
         with st.spinner("Comparaison des matchs en cours..."):
             data = extract_all_data()
-            matchs_unifies = []
             
-            # RETOUR AU CROISEMENT FIABLE
+            # 🚨 LE DIAGNOSTIC EST ICI 🚨
+            st.info(f"📡 Radar Brut : Winamax voit **{len(data['WINA'])}** matchs | Betclic voit **{len(data['BETCLIC'])}** matchs.")
+            
+            matchs_unifies = []
             for wt, wc in data['WINA'].items():
                 for bt, bc in data['BETCLIC'].items():
                     if match_identique(wt, bt):
@@ -89,11 +90,10 @@ with col2:
             if len(matchs_unifies) > 0:
                 st.success(f"✅ {len(matchs_unifies)} matchs trouvés en commun !")
             else:
-                st.error("❌ Aucun match trouvé. Les bookmakers n'ont peut-être pas encore sorti les cotes.")
+                st.error("❌ Les bookmakers n'ont pas de matchs communs (ou l'accès est bloqué).")
 
 if 'matchs_unifies' in st.session_state and st.session_state['matchs_unifies']:
     best_results = []
-    # On limite aux 15 premiers pour la vitesse de calcul sur iPhone
     for m1, m2 in itertools.combinations(st.session_state['matchs_unifies'][:15], 2):
         combos, sp_fb = [], 0
         for i1, i2 in itertools.product(['1', 'N', '2'], repeat=2):
@@ -148,10 +148,4 @@ if 'matchs_unifies' in st.session_state and st.session_state['matchs_unifies']:
                         <div class='ticket-card'>
                             <p style='margin:0; text-align:center;'>ISSUE <b>[{ticket['res']}]</b></p>
                             <p style='margin:0; text-align:center; color:{color};'><b>{ticket['site']}</b></p>
-                            <p style='margin:10px 0; text-align:center;'>Cote: <b>{ticket['cote']:.2f}</b></p>
-                            <p style='margin:0; text-align:center; background-color:#333; padding:5px; border-radius:5px;'>Mise : <b>{mise:.2f} €</b></p>
-                        </div>
-                        """, unsafe_allow_html=True)
-                
-                if budget_max_jouable < BUDGET_TOTAL_THEORIQUE:
-                    st.warning(f"⚠️ Afin de ne pas dépasser tes soldes actuels, le calcul s'est basé sur {budget_max_jouable:.2f}€ au lieu de {BUDGET_TOTAL_THEORIQUE:.2f}€.")
+                            <p style='margin:10px 0; text-align
