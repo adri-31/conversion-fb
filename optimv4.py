@@ -13,6 +13,9 @@ st.sidebar.header("💰 Tes Soldes")
 MAX_WINA = st.sidebar.number_input("Solde Winamax (€)", value=135.0)
 MAX_BETCLIC = st.sidebar.number_input("Solde Betclic (€)", value=55.0)
 
+BUDGET_TOTAL_THEORIQUE = MAX_WINA + MAX_BETCLIC
+st.sidebar.success(f"💶 Total à convertir : **{BUDGET_TOTAL_THEORIQUE:.2f} €**")
+
 WINA_URLS = ["https://www.winamax.fr/paris-sportifs/sports/1/800000542", "https://www.winamax.fr/paris-sportifs/sports/1/7", "https://www.winamax.fr/paris-sportifs/sports/1/1", "https://www.winamax.fr/paris-sportifs/sports/1/32", "https://www.winamax.fr/paris-sportifs/sports/1/30", "https://www.winamax.fr/paris-sportifs/sports/1/31"]
 BETCLIC_URLS = ["https://www.betclic.fr/football-s1/ligue-des-champions-c8", "https://www.betclic.fr/football-s1/ligue-europa-c3453", "https://www.betclic.fr/football-s1/ligue-1-mcdonald-s-c4", "https://www.betclic.fr/football-s1/angl-premier-league-c3", "https://www.betclic.fr/football-s1/espagne-liga-primera-c7", "https://www.betclic.fr/football-s1/allemagne-bundesliga-c5", "https://www.betclic.fr/football-s1/italie-serie-a-c6"]
 
@@ -62,25 +65,31 @@ if st.button("🔍 Chercher les meilleures cotes"):
 
         if len(matchs_communs) >= 2:
             best_gain_net, best_duo = 0, None
+            # LE BUDGET EST MAINTENANT FORCÉ SUR LA SOMME EXACTE DES SOLDES
+            budget_force = MAX_WINA + MAX_BETCLIC
+            
             for m1, m2 in itertools.combinations(matchs_communs[:15], 2):
                 issues = [('1','1'), ('1','N'), ('1','2'), ('N','1'), ('N','N'), ('N','2'), ('2','1'), ('2','N'), ('2','2')]
                 pw_raw, pb_raw, temp_cg = 0, 0, []
                 for i1, i2 in issues:
                     c_w, c_b = m1['w'][i1] * m2['w'][i2], m1['b'][i1] * m2['b'][i2]
-                    if c_w >= c_b: pw_raw += 1 / (c_w - 1); temp_cg.append(('WINA', c_w, i1, i2))
-                    else: pb_raw += 1 / (c_b - 1); temp_cg.append(('BETCLIC', c_b, i1, i2))
+                    if c_w >= c_b: 
+                        pw_raw += 1 / (c_w - 1)
+                        temp_cg.append(('WINA', c_w, i1, i2))
+                    else: 
+                        pb_raw += 1 / (c_b - 1)
+                        temp_cg.append(('BETCLIC', c_b, i1, i2))
                 
                 sp = pw_raw + pb_raw
                 if sp > 0:
-                    budget_max = min(MAX_WINA / (pw_raw/sp) if pw_raw > 0 else float('inf'), MAX_BETCLIC / (pb_raw/sp) if pb_raw > 0 else float('inf'))
-                    gain_net = budget_max / sp
-                    if gain_net > best_gain_net: best_gain_net, best_duo = gain_net, (m1, m2, temp_cg, sp, budget_max, (1/sp)*100)
+                    gain_net = budget_force / sp
+                    if gain_net > best_gain_net: 
+                        best_gain_net, best_duo = gain_net, (m1, m2, temp_cg, sp, budget_force, (1/sp)*100)
 
             if best_duo:
                 m1, m2, cg, sp, budget, tx = best_duo
                 st.success(f"💎 OPTION RENTABLE TROUVÉE")
                 
-                # --- AFFICHAGE CLAIR ET JOLI ---
                 col1, col2, col3 = st.columns(3)
                 col1.metric("Taux de Conversion", f"{tx:.2f}%")
                 col2.metric("Gain Cash Garanti", f"{best_gain_net:.2f} €")
@@ -88,9 +97,17 @@ if st.button("🔍 Chercher les meilleures cotes"):
                 
                 st.markdown("---")
                 st.subheader(f"⚽ {m1['t']} ➕ {m2['t']}")
-                st.markdown("##### Voici les 9 tickets à placer :")
                 
-                # Grille 3x3 simple et robuste
+                # --- CALCUL RÉPARTITION ---
+                total_wina = sum((1 / (cote - 1) / sp) * budget for bookie, cote, i1, i2 in cg if bookie == 'WINA')
+                total_betclic = sum((1 / (cote - 1) / sp) * budget for bookie, cote, i1, i2 in cg if bookie == 'BETCLIC')
+                
+                if total_wina > MAX_WINA or total_betclic > MAX_BETCLIC:
+                    st.error(f"⚠️ **ATTENTION :** Ce match demande **{total_wina:.2f} € sur Winamax** et **{total_betclic:.2f} € sur Betclic**. Tes soldes actuels ne permettent pas de placer ce pari. Cherche un autre moment ou ajuste tes soldes.")
+                else:
+                    st.success(f"✅ **RÉPARTITION PARFAITE :** Ce match rentre dans tes clous ({total_wina:.2f}€ sur Wina / {total_betclic:.2f}€ sur Betclic).")
+
+                st.markdown("##### Voici les 9 tickets à placer :")
                 for r in range(0, 9, 3):
                     cols = st.columns(3)
                     for c in range(3):
