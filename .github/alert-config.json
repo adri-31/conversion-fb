@@ -1,0 +1,11 @@
+{
+  "enabled": true,
+  "threshold": 78.0,
+  "strong_threshold": 80.0,
+  "balances": {
+    "winamax_fr": 135.0,
+    "betclic_fr": 55.0,
+    "unibet_fr": 0.0
+  },
+  "assignee": "adri-31"
+}
