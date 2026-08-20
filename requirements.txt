@@ -1,1 +1,4 @@
+streamlit
+requests
+numpy
 curl_cffi
