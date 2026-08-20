@@ -6,15 +6,21 @@ on:
     paths:
       - "site/**"
       - "scripts/fetch_odds.py"
+      - "scripts/check_conversion_alert.py"
+      - ".github/alert-config.json"
       - ".github/workflows/site.yml"
   workflow_dispatch:
   schedule:
-    - cron: "0 16 */2 * *"
+    # Scans concentrés autour des week-ends pour préserver le quota gratuit.
+    - cron: "0 15 * * 5"
+    - cron: "0 9 * * 6"
+    - cron: "0 9 * * 0"
 
 permissions:
   contents: read
   pages: write
   id-token: write
+  issues: write
 
 concurrency:
   group: github-pages
@@ -26,16 +32,114 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Install alert engine dependency
+        run: python -m pip install --quiet numpy
+
       - name: Fetch all football odds from Winamax, Betclic and Unibet
         env:
           THE_ODDS_API_KEY: ${{ secrets.THE_ODDS_API_KEY }}
         run: python scripts/fetch_odds.py
+
+      - name: Check best conversion for alert
+        id: conversion_alert
+        run: |
+          python scripts/check_conversion_alert.py \
+            --data site/data/odds.json \
+            --config .github/alert-config.json \
+            --output alert.json \
+            --markdown alert.md
+          python - <<'PY'
+          import json
+          import os
+
+          data = json.load(open("alert.json", encoding="utf-8"))
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              print(f"triggered={str(bool(data.get('triggered'))).lower()}", file=output)
+              print(f"key={data.get('alert_key', '')}", file=output)
+              print(f"title={data.get('title', '')}", file=output)
+          PY
+
+      - name: Notify conversion opportunity
+        if: steps.conversion_alert.outputs.triggered == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ALERT_KEY: ${{ steps.conversion_alert.outputs.key }}
+          ALERT_TITLE: ${{ steps.conversion_alert.outputs.title }}
+        run: |
+          gh label create conversion-alert \
+            --repo "$GITHUB_REPOSITORY" \
+            --color "B60205" \
+            --description "Alerte automatique de conversion freebet" \
+            --force
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          key = os.environ["ALERT_KEY"]
+          title = os.environ["ALERT_TITLE"]
+          marker = f"conversion-alert-key:{key}"
+          raw = subprocess.check_output([
+              "gh", "issue", "list", "--repo", repo,
+              "--label", "conversion-alert", "--state", "open",
+              "--limit", "100", "--json", "number,body"
+          ], text=True)
+          issues = json.loads(raw)
+
+          if any(marker in (issue.get("body") or "") for issue in issues):
+              print("Même alerte déjà ouverte : aucune notification en double.")
+              raise SystemExit(0)
+
+          for issue in issues:
+              subprocess.run([
+                  "gh", "issue", "close", str(issue["number"]),
+                  "--repo", repo, "--reason", "completed"
+              ], check=False)
+
+          subprocess.run([
+              "gh", "issue", "create", "--repo", repo,
+              "--title", title,
+              "--body-file", "alert.md",
+              "--assignee", "adri-31",
+              "--label", "conversion-alert"
+          ], check=True)
+          PY
+
+      - name: Clear expired conversion alert
+        if: steps.conversion_alert.outputs.triggered != 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          raw = subprocess.check_output([
+              "gh", "issue", "list", "--repo", repo,
+              "--label", "conversion-alert", "--state", "open",
+              "--limit", "100", "--json", "number"
+          ], text=True)
+          for issue in json.loads(raw):
+              subprocess.run([
+                  "gh", "issue", "close", str(issue["number"]),
+                  "--repo", repo, "--reason", "completed"
+              ], check=False)
+          PY
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
+
       - name: Upload site
         uses: actions/upload-pages-artifact@v4
         with:
