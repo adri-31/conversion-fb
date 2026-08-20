@@ -1,0 +1,55 @@
+name: Test conversion alert
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/test-alert.yml"
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create test conversion notification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create conversion-alert-test \
+            --repo "$GITHUB_REPOSITORY" \
+            --color "1D76DB" \
+            --description "Test de livraison des alertes de conversion" \
+            --force
+
+          gh issue list \
+            --repo "$GITHUB_REPOSITORY" \
+            --label "conversion-alert-test" \
+            --state open \
+            --limit 100 \
+            --json number \
+            --jq '.[].number' | while read -r issue; do
+              [ -z "$issue" ] || gh issue close "$issue" --repo "$GITHUB_REPOSITORY" --reason completed
+            done
+
+          cat > /tmp/test-alert.md <<'EOF'
+          @adri-31
+
+          Ceci est une **alerte de test**. Il ne s'agit pas d'une vraie opportunité de pari.
+
+          Si tu reçois cette notification dans GitHub, la chaîne **GitHub Actions → création de l'alerte → compte GitHub** fonctionne.
+
+          Si tu reçois aussi un email ou une notification push, alors ce canal est correctement configuré dans tes réglages GitHub.
+
+          La vraie alerte reste déclenchée uniquement pour une conversion calculée **≥ 78 %** sur Winamax, Betclic et Unibet.
+          EOF
+
+          gh issue create \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "TEST ALERTE conversion 78 % · notifications" \
+            --body-file /tmp/test-alert.md \
+            --assignee "adri-31" \
+            --label "conversion-alert-test"
