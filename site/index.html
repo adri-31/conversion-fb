@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow,noarchive" />
+  <title>Conversion Freebets</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">WINAMAX · BETCLIC · UNIBET</p>
+        <h1>Conversion Freebets</h1>
+        <p class="lead">Optimisation automatique des 9 issues de deux matchs 1N2 pour maximiser le cash garanti.</p>
+      </div>
+      <div id="dataStatus" class="status">Chargement des cotes…</div>
+    </header>
+
+    <section class="panel controls">
+      <div class="section-title">
+        <div>
+          <h2>Soldes freebets</h2>
+          <p>Les réglages restent enregistrés sur cet appareil.</p>
+        </div>
+      </div>
+      <div class="grid three">
+        <label>Winamax (€)<input id="balanceWinamax" type="number" min="0" step="1" value="135" /></label>
+        <label>Betclic (€)<input id="balanceBetclic" type="number" min="0" step="1" value="55" /></label>
+        <label>Unibet (€)<input id="balanceUnibet" type="number" min="0" step="1" value="0" /></label>
+      </div>
+
+      <div class="section-title compact">
+        <div>
+          <h2>Recherche</h2>
+          <p>Les cotes viennent du dernier rafraîchissement GitHub.</p>
+        </div>
+      </div>
+      <div class="grid three">
+        <label>Cote combinée minimale<input id="minOdd" type="number" min="1.01" step="0.05" value="1.50" /></label>
+        <label>Matchs max analysés<input id="maxEvents" type="number" min="2" max="30" step="1" value="18" /></label>
+        <label>Résultats affichés<input id="topCount" type="number" min="1" max="10" step="1" value="5" /></label>
+      </div>
+      <div id="sportFilters" class="chips"></div>
+      <button id="calculateBtn" class="primary" type="button">Chercher la meilleure conversion</button>
+    </section>
+
+    <section id="summary" class="summary hidden"></section>
+    <section id="results" class="results"></section>
+
+    <footer>
+      <p>Calcul freebet : la mise n'est pas rendue. Le cash couvert correspond au gain net <strong>(cote − 1)</strong>.</p>
+      <p>Site non indexé · données actualisées automatiquement par GitHub Actions.</p>
+    </footer>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

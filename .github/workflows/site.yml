@@ -1,0 +1,54 @@
+name: Conversion FB site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "scripts/fetch_odds.py"
+      - ".github/workflows/site.yml"
+  workflow_dispatch:
+  schedule:
+    - cron: "0 8 * * *"
+    - cron: "0 15 * * 5,6,0"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Fetch Winamax, Betclic and Unibet odds
+        env:
+          THE_ODDS_API_KEY: ${{ secrets.THE_ODDS_API_KEY }}
+        run: python scripts/fetch_odds.py
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Upload site
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
